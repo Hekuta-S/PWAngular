@@ -1,26 +1,38 @@
-import { Component, Input, OnInit, OnDestroy } from '@angular/core';
+import { Component, Input, OnInit, OnDestroy, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms'; 
 import { HttpClient } from '@angular/common/http';
 import { IndexedDBService } from '../../services/indexeddb.service';
 import { CommonModule } from '@angular/common'; 
 import { LucideAngularModule } from 'lucide-angular';
 import { icons } from 'lucide-angular';
+import { ChangeDetectionStrategy } from '@angular/core';
+
 @Component({
   selector: 'app-data-input',
-  standalone: true, // 👈 Esto indica que es standalone
-  imports: [FormsModule, CommonModule], // 👈 Agrego CommonModule para directivas ngIf y ngFor
+  standalone: true,
+  imports: [FormsModule, CommonModule],
   templateUrl: './data-input.component.html',
-  styleUrls: ['./data-input.component.css']
+  styleUrls: ['./data-input.component.css'],
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class DataInputComponent implements OnInit, OnDestroy {
   nombre = '';
   email = '';
   mensaje = '';
-  @Input() items: any[] = [];
+  items = signal<any[]>([]);
+  currentPage = signal(1);
+  itemsPerPage = 6;
+  showPopup = signal(false);
+  popupMessage = signal('');
 
-  // Nuevas variables para el popup
-  showPopup = false;
-  popupMessage = '';
+  get totalPages() {
+    return Math.max(1, Math.ceil(this.items().length / this.itemsPerPage));
+  }
+
+  paginatedItems = computed(() => {
+    const start = (this.currentPage() - 1) * this.itemsPerPage;
+    return this.items().slice(start, start + this.itemsPerPage);
+  });
 
   constructor(private indexedDBService: IndexedDBService, private http: HttpClient) {}
 
@@ -34,15 +46,13 @@ export class DataInputComponent implements OnInit, OnDestroy {
     }
   }
 
-  ngOnDestroy(): void {
-    // No hace falta limpiar listeners aquí
-  }
+  ngOnDestroy(): void {}
 
   async onSubmit() {
     if (!this.nombre.trim() || !this.mensaje.trim()) {
-      this.popupMessage = 'Por favor completa todos los campos.';
-      this.showPopup = true;
-      setTimeout(() => { this.showPopup = false; }, 2000);
+      this.popupMessage.set('Por favor completa todos los campos.');
+      this.showPopup.set(true);
+      setTimeout(() => this.showPopup.set(false), 2000);
       return;
     }
     const data = {
@@ -52,27 +62,42 @@ export class DataInputComponent implements OnInit, OnDestroy {
     };
     try {
       await this.indexedDBService.addData(data);
-      this.popupMessage = 'Datos guardados localmente en IndexedDB.';
-      this.showPopup = true;
-      setTimeout(() => { this.showPopup = false; }, 2000);
+      this.popupMessage.set('Datos guardados localmente en IndexedDB.');
+      this.showPopup.set(true);
+      setTimeout(() => this.showPopup.set(false), 2000);
       this.nombre = '';
       this.email = '';
       this.mensaje = '';
-      // Si hay internet, sincroniza los datos offline y recarga la lista
       if (navigator.onLine) {
         await this.syncOfflineData();
         this.loadItemsFromApi();
       }
     } catch (error) {
-      this.popupMessage = 'Error al guardar datos offline.';
-      this.showPopup = true;
-      setTimeout(() => { this.showPopup = false; }, 2000);
+      this.popupMessage.set('Error al guardar datos offline.');
+      this.showPopup.set(true);
+      setTimeout(() => this.showPopup.set(false), 2000);
       console.error(error);
     }
   }
 
-  // Sincroniza los datos guardados en IndexedDB con el backend
-  private async syncOfflineData() {
+  async deleteItem(item: any) {
+    if (item.id && navigator.onLine) {
+      try {
+        await this.http.delete(`http://localhost:8000/api/v1/items/${item.id}`).toPromise();
+        this.loadItemsFromApi();
+      } catch (error) {
+        this.popupMessage.set('Error al eliminar el item del backend.');
+        this.showPopup.set(true);
+        setTimeout(() => this.showPopup.set(false), 2000);
+        console.error(error);
+      }
+    } else if (item.id) {
+      await this.indexedDBService.deleteData(item.id);
+      this.loadItemsFromApi();
+    }
+  }
+
+  async syncOfflineData() {
     const offlineData = await this.indexedDBService.getAllData();
     if (offlineData && offlineData.length > 0) {
       try {
@@ -83,84 +108,39 @@ export class DataInputComponent implements OnInit, OnDestroy {
           }
         }
       } catch (error) {
-        alert('Error al sincronizar datos offline.');
+        this.popupMessage.set('Error al sincronizar datos offline.');
+        this.showPopup.set(true);
+        setTimeout(() => this.showPopup.set(false), 2000);
         console.error(error);
       }
     }
   }
 
   loadItemsFromApi() {
-  if (!navigator.onLine) {
-    this.items = [];
-    this.setPaginatedItems(); // Actualiza la vista también offline
-    return;
-  }
-  this.http.get<any[]>('http://localhost:8000/api/v1/items/').subscribe({
-    next: (data) => {
-      this.items = data;
-      this.currentPage = 1;
-      this.setPaginatedItems();
-    },
-    error: (err) => {
-      this.items = [];
-      this.setPaginatedItems();
-      if (navigator.onLine) {
-        console.error('Error al cargar items desde la API', err);
-      }
+    if (!navigator.onLine) {
+      this.items.set([]);
+      return;
     }
-  });
-}
-
-
-
-// Nuevas propiedades para paginación
-paginatedItems: any[] = [];
-currentPage: number = 1;
-itemsPerPage: number = 6;
-
-get totalPages(): number {
-  return Math.ceil(this.items.length / this.itemsPerPage);
-}
-
-// Actualiza los ítems paginados cada vez que cambia la lista o la página
-setPaginatedItems(): void {
-  const start = (this.currentPage - 1) * this.itemsPerPage;
-  const end = start + this.itemsPerPage;
-  this.paginatedItems = this.items.slice(start, end);
-}
-
-// Ir a la página siguiente
-nextPage(): void {
-  if (this.currentPage < this.totalPages) {
-    this.currentPage++;
-    this.setPaginatedItems();
-  }
-}
-
-// Ir a la página anterior
-prevPage(): void {
-  if (this.currentPage > 1) {
-    this.currentPage--;
-    this.setPaginatedItems();
-  }
-}
-
-  async deleteItem(item: any) {
-    // Si el item tiene id, intenta eliminarlo del backend
-    if (item.id && navigator.onLine) {
-      try {
-        await this.http.delete(`http://localhost:8000/api/v1/items/${item.id}`).toPromise();
-        this.loadItemsFromApi();
-      } catch (error) {
-        alert('Error al eliminar el item del backend.');
-        console.error(error);
+    this.http.get<any[]>('http://localhost:8000/api/v1/items/').subscribe({
+      next: (data) => this.items.set(data),
+      error: (err) => {
+        this.items.set([]);
+        if (navigator.onLine) {
+          console.error('Error al cargar items desde la API', err);
+        }
       }
-    } else if (item.id) {
-      // Si no hay internet, elimina solo de IndexedDB
-      await this.indexedDBService.deleteData(item.id);
-      this.loadItemsFromApi();
+    });
+  }
+
+  nextPage() {
+    if (this.currentPage() < this.totalPages) {
+      this.currentPage.set(this.currentPage() + 1);
     }
   }
 
-
+  prevPage() {
+    if (this.currentPage() > 1) {
+      this.currentPage.set(this.currentPage() - 1);
+    }
+  }
 }
