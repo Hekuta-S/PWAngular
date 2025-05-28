@@ -24,8 +24,8 @@
 
 3. **Inicia el backend:**
    ```powershell
-   cd app
-   uvicorn main:app --reload --host 0.0.0.0 --port 8000
+   en la raiz ejecutamos
+   uvicorn app.main:app --reload
    ```
    El backend estará disponible en http://localhost:8000
 
