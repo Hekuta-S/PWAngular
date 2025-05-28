@@ -40,10 +40,16 @@
    ```
 
 2. **Inicia la aplicación Angular:**
-   ```powershell
-   npm start
-   ```
-   La app estará disponible en http://localhost:4200
+  ''ejecutar aplicacion en modo produccion con "ng build --configuration production"
+eso soltara una ruta, en esa ruta hay una carpeta que se llama browser, abrimos un cmd desde ahi.
+ejecutamos el siguiente comando "browser>http-server -p 8080 --fallback index.html"
+se tiene que ver manos menos asi:
+C:\Users\heku\Documents\Programacion\Fulestac\Fronen\dist\frontfullstack\browser>http-server -p 8080 --fallback index.html
+
+
+el servidor estara corriendo en mi caso en http://127.0.0.1:8080
+
+  
 
 ---
 
